@@ -1,0 +1,9 @@
+{
+  "input": {
+    "source_face_url": "https://example.com/source-face.jpg",
+    "target_url": "https://example.com/target-video.mp4",
+    "processors": ["face_swapper"],
+    "execution_providers": ["cuda"],
+    "output_format": "mp4"
+  }
+}
