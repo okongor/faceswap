@@ -1,47 +1,55 @@
-# FaceFusion on RunPod Serverless
+# Real-time FaceSwap + Voice Clone on RunPod
 
-Run FaceFusion as a serverless endpoint on RunPod.
+Live face swap and voice cloning for 60-second video calls.
 
-## What it does
+## Architecture
 
-Accepts a source face image + a target image/video, runs face swapping (and optionally face enhancement), returns the output file URL over S3/R2.
+- **GPU Pod (warm):** Runs the streaming server (face swap + RVC voice conversion)
+- **API Server:** Manages queue, quotas, user authentication
+- **Client:** Web app that captures webcam + mic, streams to server
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `stream_server.py` | Real-time WebSocket server (face swap + voice) |
+| `api_server.py` | Queue + quota management API |
+| `test_client.html` | Browser test client |
+| `Dockerfile` | GPU pod container (CUDA 12.4 + insightface + RVC) |
+| `requirements.txt` | Python dependencies |
 
 ## Deploy
 
-1. Fork this repo
-2. Go to **RunPod Console → Serverless → Deploy from a GitHub repository**
-3. Connect this repo
-4. Set your endpoint config (GPU type, concurrency, etc.)
+### 1. GPU Pod (Warm)
+
+On RunPod:
+- Deploy as a **GPU Pod** (not serverless)
+- Use the Dockerfile in this repo
+- Expose port **8765** (WebSocket)
+- Set env: `MAX_USERS=1`, `CALL_DURATION=65`
+
+### 2. API Server
+
+Run on a cheap CPU instance:
+```bash
+pip install fastapi uvicorn
+uvicorn api_server:app --host 0.0.0.0 --port 8000
+```
+Set env: `WARM_POD_URL=ws://<gpu-pod-ip>:8765`
+
+### 3. Test Client
+
+Open `test_client.html` in a browser, enter the WebSocket URL, upload a face image and reference audio, click Start.
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `S3_ENDPOINT` | Yes | S3-compatible storage endpoint |
-| `S3_REGION` | Yes | S3 region (e.g. `us-east-1`) |
-| `S3_BUCKET` | Yes | Bucket name for output |
-| `S3_ACCESS_KEY` | Yes | S3 access key |
-| `S3_SECRET_KEY` | Yes | S3 secret key |
-| `OUTPUT_PATH_PREFIX` | No | Prefix for output keys (default: `facefusion/`) |
+### GPU Pod
+- `STREAM_PORT` - WebSocket port (default: 8765)
+- `MAX_USERS` - Concurrent users per GPU (default: 1)
+- `CALL_DURATION` - Max call seconds (default: 65)
 
-## Input Format
-
-```json
-{
-  "input": {
-    "source_face_url": "https://.../source.jpg",
-    "target_url": "https://.../target.mp4",
-    "processors": ["face_swapper", "face_enhancer"],
-    "execution_providers": ["cuda"],
-    "output_format": "mp4"
-  }
-}
-```
-
-## Output Format
-
-```json
-{
-  "output_url": "https://s3.../facefusion/output_abc123.mp4"
-}
-```
+### API Server
+- `MAX_CONCURRENT` - Max simultaneous calls (default: 5)
+- `MAX_CALLS_PER_DAY` - Per user daily limit (default: 2)
+- `CALL_DURATION` - Call length in seconds (default: 60)
+- `WARM_POD_URL` - WebSocket URL of the GPU pod
