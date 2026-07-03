@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FaceSwap + Voice Clone</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f0f13;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .container { max-width: 900px; width: 100%; padding: 20px; }
+  h1 {
+    text-align: center;
+    font-size: 1.8em;
+    margin: 30px 0 10px;
+    background: linear-gradient(135deg, #00d2ff, #7b2ff7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
+  .card {
+    background: #1a1a24;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border: 1px solid #2a2a38;
+  }
+  .card h2 { font-size: 1.1em; margin-bottom: 15px; color: #ccc; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .full { grid-column: 1 / -1; }
+  label { display: block; margin-bottom: 6px; font-size: 0.85em; color: #aaa; }
+  input, button, select {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #252535;
+    color: #e0e0e0;
+    font-size: 0.95em;
+    outline: none;
+    transition: border 0.2s;
+  }
+  input:focus { border-color: #7b2ff7; }
+  button {
+    background: linear-gradient(135deg, #7b2ff7, #00d2ff);
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.danger { background: linear-gradient(135deg, #ff4757, #ff6b81); }
+  button.neutral { background: #333; }
+  .video-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 15px;
+  }
+  .video-box {
+    aspect-ratio: 4/3;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+  .video-box video, .video-box canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .video-box .label {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    font-size: 0.75em;
+    background: rgba(0,0,0,0.7);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #252535;
+    border-radius: 8px;
+    margin-bottom: 15px;
+  }
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #555;
+  }
+  .dot.green { background: #2ecc71; box-shadow: 0 0 8px #2ecc7180; }
+  .dot.red { background: #e74c3c; box-shadow: 0 0 8px #e74c3c80; }
+  .dot.yellow { background: #f1c40f; box-shadow: 0 0 8px #f1c40f80; }
+  .timer { font-size: 1.4em; font-weight: bold; font-variant-numeric: tabular-nums; }
+  .hidden { display: none; }
+  .upload-area {
+    border: 2px dashed #333;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border 0.2s;
+  }
+  .upload-area:hover { border-color: #7b2ff7; }
+  .upload-area.has-file { border-color: #2ecc71; }
+  @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>⚡ FaceSwap Pro</h1>
+  <p class="subtitle">Real-time face swap + voice cloning</p>
+
+  <div id="serverSection" class="card">
+    <h2>🔗 Server</h2>
+    <div class="grid-2">
+      <div class="full">
+        <label>WebSocket URL</label>
+        <input id="wsUrl" value="wss://YOUR-POD-URL-8765.proxy.runpod.net" placeholder="ws://..." />
+      </div>
+    </div>
+    <button id="connectBtn">Connect</button>
+  </div>
+
+  <div id="setupSection" class="card hidden">
+    <h2>📸 Setup</h2>
+    <div class="grid-2">
+      <div>
+        <label>Source Face (who to swap to)</label>
+        <div id="faceUpload" class="upload-area">
+          <p id="faceLabel">Click to upload face photo</p>
+        </div>
+        <div id="facePreview" class="hidden video-box" style="margin-top:8px;">
+          <canvas id="faceCanvas"></canvas>
+        </div>
+        <input id="faceInput" type="file" accept="image/*" style="display:none" />
+      </div>
+      <div>
+        <label>Reference Voice (optional)</label>
+        <div id="audioUpload" class="upload-area">
+          <p id="audioLabel">Click to upload voice sample</p>
+        </div>
+        <input id="audioInput" type="file" accept="audio/*" style="display:none" />
+        <label style="margin-top:12px; display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="voiceToggle" checked />
+          Enable voice cloning
+        </label>
+      </div>
+    </div>
+    <button id="startCallBtn" disabled>Start Call</button>
+  </div>
+
+  <div id="callSection" class="card hidden">
+    <div class="status-bar">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Ready</span>
+      <span style="flex:1"></span>
+      <span class="timer" id="timerDisplay">00:00</span>
+    </div>
+    <div class="video-grid">
+      <div class="video-box">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <span class="label">You</span>
+      </div>
+      <div class="video-box">
+        <canvas id="remoteCanvas"></canvas>
+        <span class="label">Swapped</span>
+      </div>
+    </div>
+    <button id="endCallBtn" class="danger">End Call</button>
+  </div>
+
+  <div id="logSection" class="card">
+    <h2>📋 Logs</h2>
+    <pre id="log" style="max-height:200px; overflow-y:auto; font-size:0.8em; color:#888;"></pre>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = (msg) => { const el = $('log'); el.textContent += '[' + new Date().toLocaleTimeString() + '] ' + msg + '\n'; el.scrollTop = el.scrollHeight; };
+const setStatus = (text, dot='yellow') => { $('statusText').textContent = text; $('statusDot').className = 'dot ' + dot; };
+const formatTime = (s) => { const m = Math.floor(s/60); const sec = Math.floor(s%60); return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0'); };
+
+let ws = null;
+let mediaStream = null;
+let callActive = false;
+let sourceFaceData = null;
+let referenceAudioData = null;
+let callTimer = null;
+let frameInterval = null;
+
+// File uploads
+$('faceUpload').onclick = () => $('faceInput').click();
+$('faceInput').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const b64 = await fileToBase64(file);
+  sourceFaceData = b64.split(',')[1];
+  $('faceUpload').classList.add('has-file');
+  $('faceLabel').textContent = '✅ ' + file.name;
+  // preview
+  const img = new Image();
+  img.onload = () => {
+    const c = $('faceCanvas');
+    c.width = img.width; c.height = img.height;
+    c.getContext('2d').drawImage(img, 0, 0);
+  };
+  img.src = URL.createObjectURL(file);
+  $('facePreview').classList.remove('hidden');
+  checkReady();
+};
+
+$('audioUpload').onclick = () => $('audioInput').click();
+$('audioInput').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const b64 = await fileToBase64(file);
+  referenceAudioData = b64.split(',')[1];
+  $('audioUpload').classList.add('has-file');
+  $('audioLabel').textContent = '✅ ' + file.name;
+};
+
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function checkReady() {
+  $('startCallBtn').disabled = !sourceFaceData;
+}
+
+// Connect
+$('connectBtn').onclick = async () => {
+  const url = $('wsUrl').value.trim();
+  if (!url) return log('Enter a WebSocket URL');
+  try {
+    log('Connecting to ' + url);
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => {
+      log('✅ Connected');
+      $('setupSection').classList.remove('hidden');
+      $('connectBtn').disabled = true;
+      $('wsUrl').disabled = true;
+    };
+    ws.onclose = () => {
+      log('❌ Disconnected');
+      $('connectBtn').disabled = false;
+      $('wsUrl').disabled = false;
+      $('setupSection').classList.add('hidden');
+      $('callSection').classList.add('hidden');
+      if (callActive) endCall();
+    };
+    ws.onerror = (e) => log('WebSocket error');
+    ws.onmessage = handleMessage;
+  } catch (e) {
+    log('Connection failed: ' + e.message);
+  }
+};
+
+function handleMessage(e) {
+  if (typeof e.data === 'string') {
+    try {
+      const msg = JSON.parse(e.data);
+      handleJson(msg);
+    } catch { log('Unknown: ' + e.data); }
+  } else {
+    // Binary: frame or audio
+    const buf = new Uint8Array(e.data);
+    if (buf[0] === 0) {
+      // Frame
+      const ts = new DataView(buf.buffer, 1, 4).getUint32(0);
+      const blob = new Blob([buf.slice(5)], {type: 'image/jpeg'});
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const c = $('remoteCanvas');
+        c.width = img.width; c.height = img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    } else if (buf[0] === 1) {
+      // Audio - play through local speaker
+    }
+  }
+}
+
+function handleJson(msg) {
+  log('Server: ' + msg.status + (msg.error ? ' (' + msg.error + ')' : ''));
+  if (msg.status === 'ready') {
+    $('callSection').classList.remove('hidden');
+    $('setupSection').classList.add('hidden');
+    callActive = true;
+    setStatus('Live', 'green');
+    startTimer(msg.duration || 60);
+    startMedia();
+  } else if (msg.status === 'face_loaded') {
+    setStatus('Face loaded, connecting...', 'yellow');
+  } else if (msg.status === 'voice_ready') {
+    log('Voice model trained');
+  } else if (msg.error) {
+    setStatus('Error: ' + msg.error, 'red');
+  }
+}
+
+async function startMedia() {
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, frameRate: 15 },
+      audio: true
+    });
+    $('localVideo').srcObject = mediaStream;
+    // Send frames
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    const video = $('localVideo');
+    frameInterval = setInterval(() => {
+      if (!callActive) return;
+      ctx.drawImage(video, 0, 0, 640, 480);
+      canvas.toBlob(async (blob) => {
+        if (!callActive || ws.readyState !== 1) return;
+        const buf = await blob.arrayBuffer();
+        const ts = Math.floor(Date.now() / 1000);
+        const header = new Uint8Array(5);
+        header[0] = 0;
+        new DataView(header.buffer, 1, 4).setUint32(0, ts);
+        ws.send(new Uint8Array([...header, ...new Uint8Array(buf)]));
+      }, 'image/jpeg', 80);
+    }, 100); // ~10fps
+  } catch (e) {
+    log('Media error: ' + e.message);
+  }
+}
+
+function startTimer(duration) {
+  let remaining = duration;
+  $('timerDisplay').textContent = formatTime(remaining);
+  callTimer = setInterval(() => {
+    remaining--;
+    $('timerDisplay').textContent = formatTime(remaining);
+    if (remaining <= 0) {
+      log('Call ended (time limit)');
+      endCall();
+    }
+  }, 1000);
+}
+
+$('startCallBtn').onclick = async () => {
+  if (!ws || ws.readyState !== 1) return log('Not connected');
+  if (!sourceFaceData) return log('Upload a source face first');
+  setStatus('Starting call...', 'yellow');
+  try {
+    await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(s => s.getTracks().forEach(t => t.stop()));
+  } catch {}
+  const msg = {
+    source_face: sourceFaceData,
+    enable_voice: $('voiceToggle').checked
+  };
+  if (referenceAudioData && $('voiceToggle').checked) {
+    msg.reference_audio = referenceAudioData;
+  }
+  ws.send(JSON.stringify(msg));
+  log('Sent setup to server');
+};
+
+$('endCallBtn').onclick = endCall;
+
+function endCall() {
+  callActive = false;
+  if (callTimer) { clearInterval(callTimer); callTimer = null; }
+  if (frameInterval) { clearInterval(frameInterval); frameInterval = null; }
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ action: 'end_call' }));
+  }
+  $('localVideo').srcObject = null;
+  setStatus('Call ended', 'yellow');
+  $('timerDisplay').textContent = '00:00';
+  $('setupSection').classList.remove('hidden');
+  $('callSection').classList.add('hidden');
+  log('Call ended');
+}
+</script>
+</body>
+</html>
