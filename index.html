@@ -153,10 +153,16 @@
           <p id="audioLabel">Click to upload voice sample</p>
         </div>
         <input id="audioInput" type="file" accept="audio/*" style="display:none" />
-        <label style="margin-top:12px; display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="voiceToggle" checked />
-          Enable voice cloning
-        </label>
+        <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="voiceToggle" checked />
+            Enable voice cloning
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="skinHairToggle" checked />
+            Preserve skin &amp; hair (keep target's original skin tone/hair)
+          </label>
+        </div>
       </div>
     </div>
     <button id="startCallBtn" disabled>Start Call</button>
@@ -376,7 +382,8 @@ $('startCallBtn').onclick = async () => {
   } catch {}
   const msg = {
     source_face: sourceFaceData,
-    enable_voice: $('voiceToggle').checked
+    enable_voice: $('voiceToggle').checked,
+    preserve_skin_hair: $('skinHairToggle').checked
   };
   if (referenceAudioData && $('voiceToggle').checked) {
     msg.reference_audio = referenceAudioData;
