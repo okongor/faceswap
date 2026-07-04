@@ -75,6 +75,40 @@ def init_facefusion_state():
     }
     for key, value in defaults.items():
         state_manager.set_item(key, value)
+    
+    # Patch get_item to return safe defaults for unset keys
+    # FaceFusion crashes when None propagates through string split/int operations
+    _orig_get_item = state_manager.get_item
+    _SAFE_DEFAULTS = {
+        'face_swapper_pixel_boost': '0x0',
+        'face_swapper_pixel_boost_type': 'cpu',
+        'face_swapper_pixel_boost_scale': 1,
+        'face_enhancer_model': 'none',
+        'face_enhancer_blend': 80,
+        'face_enhancer_pixel_boost': '0x0',
+        'face_enhancer_pixel_boost_type': 'cpu',
+        'face_enhancer_pixel_boost_scale': 1,
+        'face_detector_model': 'many',
+        'face_detector_size': '640x640',
+        'face_detector_score': 0.5,
+        'face_landmarker_score': 0.5,
+        'face_selector_mode': 'many',
+        'face_selector_order': 'left-right',
+        'reference_face_distance': 0.6,
+        'face_mask_blur': 0.3,
+        'face_mask_padding': (0, 0, 0, 0),
+        'execution_thread_count': 4,
+        'execution_queue_count': 1,
+        'video_memory_strategy': 'moderate',
+        'system_memory_limit': 0,
+    }
+    def safe_get_item(key):
+        val = _orig_get_item(key)
+        if val is None and key in _SAFE_DEFAULTS:
+            return _SAFE_DEFAULTS[key]
+        return val
+    state_manager.get_item = safe_get_item
+    
     # Verify state was stored
     check = state_manager.get_item('download_providers')
     logger.info(f"State init complete. download_providers = {check}")
