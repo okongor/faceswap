@@ -312,6 +312,8 @@ function handleJson(msg) {
     setStatus('Live', 'green');
     startTimer(msg.duration || 60);
     startMedia();
+  } else if (msg.status === 'gpu_info') {
+    log('🖥️ GPU: ' + msg.gpu);
   } else if (msg.status === 'face_loaded') {
     setStatus('Face loaded, connecting...', 'yellow');
   } else if (msg.status === 'voice_ready') {

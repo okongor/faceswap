@@ -88,6 +88,7 @@ logger = logging.getLogger("stream_server")
 PORT = int(os.environ.get("STREAM_PORT", 8888))
 MAX_USERS = int(os.environ.get("MAX_USERS", 2))
 CALL_DURATION = int(os.environ.get("CALL_DURATION", 65))
+GPU_STATUS = "Checking GPU..."
 
 if not RVC_AVAILABLE:
     class RVC:
@@ -95,9 +96,35 @@ if not RVC_AVAILABLE:
         def infer(self, audio_array): return audio_array
 
 
+def get_gpu_info():
+    """Detect GPU and return status string."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split(', ')
+            gpu_name = parts[0] if len(parts) > 0 else 'unknown'
+            mem_total = parts[1] if len(parts) > 1 else '?'
+            mem_used = parts[2] if len(parts) > 2 else '?'
+            gpu_util = parts[3] if len(parts) > 3 else '?'
+            return f"{gpu_name} | {mem_used}/{mem_total} MiB | GPU {gpu_util}%"
+    except Exception as e:
+        logger.warning(f"GPU detection failed: {e}")
+    return "No GPU detected (CPU mode)"
+
+
 def init_models():
+    global GPU_STATUS
     logger.info("Initializing FaceFusion state...")
     init_facefusion_state()
+    
+    # Detect GPU
+    GPU_STATUS = get_gpu_info()
+    logger.info(f"GPU: {GPU_STATUS}")
+    
     logger.info("Warming up FaceFusion models...")
     dummy = np.zeros((640, 640, 3), dtype=np.uint8)
     faces = get_many_faces([dummy])
@@ -173,6 +200,7 @@ class UserSession:
 
             self.source_face = extract_source_face(base64.b64decode(face_b64))
             await self.ws.send(json.dumps({"status": "face_loaded"}))
+            await self.ws.send(json.dumps({"status": "gpu_info", "gpu": GPU_STATUS}))
 
             if voice_on and audio_b64:
                 await self.ws.send(json.dumps({"status": "training_voice"}))
