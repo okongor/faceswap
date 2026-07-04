@@ -180,13 +180,30 @@ def extract_source_face(image_bytes: bytes) -> Face:
     return faces[0]
 
 
-def swap_frame(frame: np.ndarray, source_face: Face) -> np.ndarray:
+def swap_frame(frame: np.ndarray, source_face: Face, prev_face=None) -> tuple:
+    """Swap face and return (swapped_frame, new_prev_face)"""
     many_faces = get_many_faces([frame])
     if not many_faces:
-        return frame
-    for target_face in many_faces:
-        frame = swap_face(source_face, target_face, frame)
-    return frame
+        return frame, None
+    
+    target_face = many_faces[0]
+    
+    # Temporal smoothing: if we had a previous face and the new one jumped, blend
+    if prev_face is not None:
+        try:
+            # Smooth landmarks by blending with previous
+            alpha = 0.6  # weight for new detection, lower = smoother
+            new_landmarks = target_face.landmarks
+            old_landmarks = prev_face.landmarks
+            if new_landmarks is not None and old_landmarks is not None:
+                import numpy as np
+                smoothed = alpha * new_landmarks + (1 - alpha) * old_landmarks
+                target_face.landmarks = smoothed
+        except:
+            pass
+    
+    frame = swap_face(source_face, target_face, frame)
+    return frame, target_face
 
 
 class SessionWS:
@@ -222,6 +239,7 @@ class UserSession:
         self.start_time = None
         self.call_active = False
         self.frame_count = 0
+        self.prev_face = None
 
     async def handle(self):
         try:
@@ -312,8 +330,14 @@ class UserSession:
         frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if frame is None:
             return
-        frame = swap_frame(frame, self.source_face)
-        _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+
+        # Downscale for speed (half res), swap, then upscale back
+        h, w = frame.shape[:2]
+        small = cv2.resize(frame, (w//2, h//2))
+        swapped, self.prev_face = swap_frame(small, self.source_face, self.prev_face)
+        frame = cv2.resize(swapped, (w, h))
+
+        _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         try:
             await self.ws.send(struct.pack("!B I", 0, ts) + jpg.tobytes())
         except:
