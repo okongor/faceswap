@@ -1,0 +1,18 @@
+[Unit]
+Description=FaceSwap Pro Streaming Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/workspace/faceswap
+Environment=STREAM_PORT=8888
+Environment=PYTHONPATH=/workspace/facefusion:/workspace/facefusion
+ExecStart=/usr/bin/python /workspace/faceswap/stream_server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/faceswap.log
+StandardError=append:/var/log/faceswap.log
+
+[Install]
+WantedBy=multi-user.target

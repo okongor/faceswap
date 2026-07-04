@@ -126,6 +126,7 @@ PORT = int(os.environ.get("STREAM_PORT", 8888))
 MAX_USERS = int(os.environ.get("MAX_USERS", 2))
 CALL_DURATION = int(os.environ.get("CALL_DURATION", 65))
 GPU_STATUS = "Checking GPU..."
+_start_time = 0.0
 
 if not RVC_AVAILABLE:
     class RVC:
@@ -336,6 +337,15 @@ class UserSession:
 
 sessions = set()
 
+async def health_handler(request):
+    """Health check endpoint for RunPod and monitoring."""
+    return web.json_response({
+        "status": "ok",
+        "gpu": GPU_STATUS,
+        "sessions": len(sessions),
+        "uptime": time.time() - _start_time if '_start_time' in globals() else 0
+    })
+
 async def ws_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -374,9 +384,13 @@ async def index_handler(request):
 async def main():
     init_models()
 
+    global _start_time
+    _start_time = time.time()
+
     app = web.Application()
     app.router.add_get("/", index_handler)
     app.router.add_get("/index.html", index_handler)
+    app.router.add_get("/health", health_handler)
     app.router.add_get("/ws", ws_handler)
 
     runner = web.AppRunner(app)

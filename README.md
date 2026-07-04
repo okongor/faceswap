@@ -1,48 +1,47 @@
-# Real-time FaceSwap + Voice Clone
+# 🎭 FaceSwap Pro
 
-Live face swap (FaceFusion) + voice cloning (RVC) for 60-second video calls.
+Real-time face swap streaming server using FaceFusion + ONNX GPU.
+Single port: HTTP (index.html) + WebSocket (/ws).
 
-## How it works
+## 🚀 Deploy on RunPod (One Click)
 
-**Single port.** HTTP (serves index.html) + WebSocket (at `/ws`) — all on one port. No extra port config needed.
-
-## Deploy on RunPod
-
-### Option A: Fresh pod (recommended)
-
-1. **Deploy GPU Pod** → select **Runpod Pytorch 2.8.0** → pick **L4**
-2. Set **Container Disk** to 30 GB
-3. **Expose HTTP Ports**: just `8888` (default, Jupyter)
-4. Deploy, wait for green status
-
-5. **SSH into pod** and run:
+Run this from any terminal:
 ```bash
-# Install Python deps
-pip install opencv-python aiohttp numpy
-
-# Clone FaceFusion
-cd /workspace
-git clone https://github.com/facefusion/facefusion.git
-cd facefusion
-git checkout 3.1.0
-pip install -r requirements.txt
-
-# Clone faceswap repo
-cd /workspace
-git clone https://github.com/okongor/faceswap.git
-cd faceswap
-git pull
-
-# Set PYTHONPATH
-export PYTHONPATH=/workspace/facefusion:$PYTHONPATH
-echo "export PYTHONPATH=/workspace/facefusion:\$PYTHONPATH" >> ~/.bashrc
-
-# Start server
-nohup python stream_server.py > /var/log/faceswap.log 2>&1 &
-
-# Watch startup logs
-tail -f /var/log/faceswap.log
+bash <(curl -s https://raw.githubusercontent.com/okongor/faceswap/main/runpod_deploy.sh) YOUR_RUNPOD_API_KEY
 ```
+
+Or manually:
+
+### 1. Deploy GPU Pod
+- **Template**: `runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404`
+- **GPU**: NVIDIA L4 (or any)
+- **Container Disk**: 30 GB
+- **Exposed Ports**: `8888/http`
+- **Startup Script**:
+```bash
+pip install -q opencv-python aiohttp numpy onnxruntime-gpu 2>/dev/null
+cd /workspace
+if [ ! -d facefusion ]; then git clone https://github.com/facefusion/facefusion.git && cd facefusion && git checkout 3.1.0 && pip install -q -r requirements.txt 2>/dev/null; fi
+cd /workspace
+if [ ! -d faceswap ]; then git clone https://github.com/okongor/faceswap.git; fi
+cd /workspace/faceswap && git pull
+export PYTHONPATH=/workspace/facefusion:$PYTHONPATH
+export STREAM_PORT=8888
+nohup python /workspace/faceswap/stream_server.py > /var/log/faceswap.log 2>&1 &
+sleep 3
+tail -5 /var/log/faceswap.log
+```
+
+### 2. Open in Browser
+**`https://[POD_ID]-8888.proxy.runpod.net`**
+
+### 3. Use It
+1. Connect
+2. Upload a source face photo
+3. Toggle "Preserve skin & hair" (on by default — keeps target's skin tone and hair)
+4. Start Call
+
+The server stays alive as long as the pod is running. Even if you close the terminal.
 
 6. Once you see `"Server on http://0.0.0.0:8888"` — open in browser:
 
