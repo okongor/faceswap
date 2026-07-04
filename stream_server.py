@@ -12,10 +12,46 @@ import cv2
 from aiohttp import web
 
 # FaceFusion 3.1.0 imports
+from facefusion import state_manager
 from facefusion.face_analyser import get_many_faces, get_one_face
 from facefusion.processors.modules.face_swapper import swap_face
 from facefusion.face_store import get_static_faces, set_static_faces
 from facefusion.typing import VisionFrame, Face
+
+# Initialize FaceFusion state with required defaults
+import facefusion.choices as ff_choices
+def init_facefusion_state():
+    """Initialize FaceFusion state manager with default values."""
+    defaults = {
+        'face_detector_model': 'many',
+        'face_detector_size': '640x640',
+        'face_detector_angles': [0, 90, 180, 270],
+        'face_detector_score': 0.5,
+        'face_landmarker_model': 'many',
+        'face_landmarker_score': 0.5,
+        'face_selector_mode': 'many',
+        'face_selector_order': 'left-right',
+        'face_selector_gender': None,
+        'face_selector_race': None,
+        'face_selector_age': None,
+        'reference_face_distance': 0.6,
+        'reference_face_position': 0,
+        'reference_frame_number': 0,
+        'face_mask_types': ['box'],
+        'face_mask_blur': 0.3,
+        'face_mask_padding': (0, 0, 0, 0),
+        'face_mask_region': None,
+        'face_occluder_model': 'xseg_1',
+        'face_parser_model': 'bisenet_resnet_18',
+        'execution_provider': 'cuda',
+        'execution_thread_count': 4,
+        'execution_queue_count': 1,
+        'video_memory_strategy': 'moderate',
+        'system_memory_limit': 0,
+        'log_level': 'info',
+    }
+    for key, value in defaults.items():
+        state_manager.init_item(key, value)
 
 try:
     from rvc_python import RVC
@@ -37,6 +73,8 @@ if not RVC_AVAILABLE:
 
 
 def init_models():
+    logger.info("Initializing FaceFusion state...")
+    init_facefusion_state()
     logger.info("Warming up FaceFusion models...")
     dummy = np.zeros((640, 640, 3), dtype=np.uint8)
     faces = get_many_faces([dummy])
