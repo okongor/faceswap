@@ -42,7 +42,7 @@ def init_facefusion_state():
         'face_mask_padding': (0, 0, 0, 0),
         'face_mask_regions': None,
         'face_occluder_model': 'xseg_1',
-        'face_parser_model': 'none',
+        'face_parser_model': 'bisenet_resnet_18',
         'face_swapper_model': 'inswapper_128',
         'face_swapper_pixel_boost': '128x128',
         'face_swapper_pixel_boost_type': 'cpu',
@@ -250,11 +250,11 @@ class UserSession:
             audio_b64 = setup.get("reference_audio")
             voice_on = setup.get("enable_voice", True)
 
-            # Full swap — expand face area to capture hair, use largest margin
+            # Full swap with padding for dreads
             state_manager.set_item('face_mask_types', ['box'])
-            state_manager.set_item('face_mask_blur', 0)
-            state_manager.set_item('face_mask_padding', (100, 100, 100, 100))
-            state_manager.set_item('face_occluder_model', 'none')
+            state_manager.set_item('face_mask_blur', 0.1)
+            state_manager.set_item('face_mask_padding', (30, 50, 30, 50))
+            state_manager.set_item('face_occluder_model', 'xseg_1')
 
             if not face_b64:
                 await self.ws.send(json.dumps({"error": "source_face required"}))
