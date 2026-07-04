@@ -206,7 +206,10 @@ async def handler(ws):
 async def main():
     init_models()
     
-    # HTTP app for serving index.html (serves on same port)
+    ws_port = PORT
+    http_port = PORT + 1
+    
+    # HTTP app for serving index.html (serves on http_port)
     app = web.Application()
     
     async def index_handle(request):
@@ -215,20 +218,35 @@ async def main():
             return web.Response(text=html_path.read_text(), content_type="text/html")
         return web.Response(text="index.html not found", status=404)
     
+    async def ws_proxy_handle(request):
+        # Serve a client page that connects to WebSocket on ws_port
+        html_path = Path(__file__).parent / "index.html"
+        if html_path.exists():
+            html = html_path.read_text()
+            # Inject the WebSocket URL hint
+            import re
+            html = re.sub(
+                r'value="wss://[^"]*"',
+                f'value="wss://{request.host.split(":")[0]}-{ws_port}.proxy.runpod.net"',
+                html
+            )
+            return web.Response(text=html, content_type="text/html")
+        return web.Response(text="index.html not found", status=404)
+    
     app.router.add_get("/", index_handle)
     app.router.add_get("/index.html", index_handle)
     
     async def start_http():
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        site = web.TCPSite(runner, "0.0.0.0", http_port)
         await site.start()
-        logger.info(f"HTTP server on http://0.0.0.0:{PORT} (serving index.html)")
+        logger.info(f"HTTP server on http://0.0.0.0:{http_port} (serving index.html)")
     
     await start_http()
     
-    logger.info(f"WebSocket stream server on ws://0.0.0.0:{PORT}")
-    async with websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10):
+    logger.info(f"WebSocket stream server on ws://0.0.0.0:{ws_port}")
+    async with websockets.serve(handler, "0.0.0.0", ws_port, ping_interval=20, ping_timeout=10):
         await asyncio.Future()
 
 
