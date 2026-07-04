@@ -10,6 +10,10 @@ import numpy as np
 import cv2
 import torch
 
+# HTTP server for serving index.html
+from aiohttp import web
+import mimetypes
+
 # FaceFusion 3.1.0 imports
 from facefusion.face_analyser import get_many_faces, get_one_face
 from facefusion.processors.modules.face_swapper import swap_face
@@ -201,7 +205,29 @@ async def handler(ws):
 
 async def main():
     init_models()
-    logger.info(f"Stream server listening on ws://0.0.0.0:{PORT}")
+    
+    # HTTP app for serving index.html (serves on same port)
+    app = web.Application()
+    
+    async def index_handle(request):
+        html_path = Path(__file__).parent / "index.html"
+        if html_path.exists():
+            return web.Response(text=html_path.read_text(), content_type="text/html")
+        return web.Response(text="index.html not found", status=404)
+    
+    app.router.add_get("/", index_handle)
+    app.router.add_get("/index.html", index_handle)
+    
+    async def start_http():
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+        logger.info(f"HTTP server on http://0.0.0.0:{PORT} (serving index.html)")
+    
+    await start_http()
+    
+    logger.info(f"WebSocket stream server on ws://0.0.0.0:{PORT}")
     async with websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10):
         await asyncio.Future()
 
