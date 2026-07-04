@@ -249,16 +249,10 @@ class UserSession:
             face_b64 = setup.get("source_face")
             audio_b64 = setup.get("reference_audio")
             voice_on = setup.get("enable_voice", True)
-            preserve_skin_hair = setup.get("preserve_skin_hair", True)
 
-            # Configure face mask regions: exclude skin & hair when preserve is on
-            if preserve_skin_hair:
-                state_manager.set_item('face_mask_regions', ['skin', 'hair', 'left_eyebrow', 'right_eyebrow'])
-                state_manager.set_item('face_mask_types', ['occlusion', 'region'])
-                state_manager.set_item('face_parser_model', 'bisenet_resnet_18')
-            else:
-                state_manager.set_item('face_mask_regions', None)
-                state_manager.set_item('face_mask_types', ['box'])
+            # Full box swap — use source face's skin and hair
+            state_manager.set_item('face_mask_regions', None)
+            state_manager.set_item('face_mask_types', ['box'])
 
             if not face_b64:
                 await self.ws.send(json.dumps({"error": "source_face required"}))
