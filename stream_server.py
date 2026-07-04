@@ -68,7 +68,10 @@ def init_facefusion_state():
         'skip_voice_changer': False,
     }
     for key, value in defaults.items():
-        state_manager.init_item(key, value)
+        state_manager.set_item(key, value)
+    # Verify state was stored
+    check = state_manager.get_item('download_providers')
+    logger.info(f"State init complete. download_providers = {check}")
 
 try:
     from rvc_python import RVC
