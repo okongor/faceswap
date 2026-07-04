@@ -74,7 +74,7 @@ class SessionWS:
             return msg.data
         elif msg.type == web.WSMsgType.BINARY:
             return msg.data
-        raise web.WebSocketClosedError
+        raise ConnectionResetError("WebSocket closed")
 
     async def send(self, data):
         if isinstance(data, str):
@@ -135,7 +135,7 @@ class UserSession:
             await self.ws.send(json.dumps({"status": "ready", "duration": CALL_DURATION}))
             await self._stream_loop()
 
-        except (asyncio.TimeoutError, web.WebSocketClosedError):
+        except (asyncio.TimeoutError, ConnectionResetError, ConnectionAbortedError):
             pass
         except Exception as e:
             logger.error(f"Session error: {e}", exc_info=True)
@@ -149,7 +149,7 @@ class UserSession:
                     msg = await asyncio.wait_for(self.ws.recv(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
-                except web.WebSocketClosedError:
+                except (ConnectionResetError, ConnectionAbortedError):
                     break
 
                 if isinstance(msg, str):
