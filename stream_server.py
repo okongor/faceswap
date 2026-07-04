@@ -97,6 +97,17 @@ if not RVC_AVAILABLE:
 def init_models():
     logger.info("Initializing FaceFusion state...")
     init_facefusion_state()
+    
+    # Force all future get_item('execution_providers') calls to return CUDA
+    original_get_item = state_manager.get_item
+    def forced_get_item(key):
+        if key in ('execution_providers', 'execution_device_id'):
+            if key == 'execution_providers':
+                return ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            return 0
+        return original_get_item(key)
+    state_manager.get_item = forced_get_item
+    
     logger.info("Warming up FaceFusion models...")
     dummy = np.zeros((640, 640, 3), dtype=np.uint8)
     faces = get_many_faces([dummy])
