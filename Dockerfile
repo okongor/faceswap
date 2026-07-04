@@ -24,11 +24,11 @@ WORKDIR /workspace/faceswap
 # Set up PYTHONPATH
 ENV PYTHONPATH=/workspace/facefusion:$PYTHONPATH
 
-# Expose WebSocket port
-EXPOSE 8765
+# Expose WebSocket port (same as RunPod's default 8888 Jupyter port)
+EXPOSE 8888
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-  CMD python -c "import socket; s=socket.socket(); s.settimeout(3); s.connect(('localhost',8765)); s.close()" || exit 1
+  CMD python -c "import socket; s=socket.socket(); s.settimeout(3); s.connect(('localhost',8888)); s.close()" || exit 1
 
 CMD ["python", "-u", "/workspace/faceswap/stream_server.py"]
