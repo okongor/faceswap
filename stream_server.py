@@ -44,7 +44,7 @@ def init_facefusion_state():
         'face_occluder_model': 'xseg_1',
         'face_parser_model': 'bisenet_resnet_18',
         'face_swapper_model': 'inswapper_128',
-        'face_swapper_pixel_boost': '0x0',
+        'face_swapper_pixel_boost': '128x128',
         'face_swapper_pixel_boost_type': 'cpu',
         'face_swapper_pixel_boost_scale': 1,
         'execution_providers': ['cuda', 'cpu'],
@@ -80,7 +80,7 @@ def init_facefusion_state():
     # FaceFusion crashes when None propagates through string split/int operations
     _orig_get_item = state_manager.get_item
     _SAFE_DEFAULTS = {
-        'face_swapper_pixel_boost': '0x0',
+        'face_swapper_pixel_boost': '128x128',
         'face_swapper_pixel_boost_type': 'cpu',
         'face_swapper_pixel_boost_scale': 1,
         'face_enhancer_model': 'none',
