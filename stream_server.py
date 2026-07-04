@@ -250,10 +250,10 @@ class UserSession:
             audio_b64 = setup.get("reference_audio")
             voice_on = setup.get("enable_voice", True)
 
-            # Full box swap — use source face's skin and hair entirely
+            # Full swap — expand face area to capture hair, use largest margin
             state_manager.set_item('face_mask_types', ['box'])
             state_manager.set_item('face_mask_blur', 0)
-            state_manager.set_item('face_mask_padding', (0, 0, 0, 0))
+            state_manager.set_item('face_mask_padding', (100, 100, 100, 100))
             state_manager.set_item('face_occluder_model', 'none')
 
             if not face_b64:
