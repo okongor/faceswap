@@ -43,7 +43,7 @@ def init_facefusion_state():
         'face_mask_regions': None,
         'face_occluder_model': 'xseg_1',
         'face_parser_model': 'bisenet_resnet_18',
-        'execution_provider': 'cuda',
+        'execution_providers': ['cuda'],
         'execution_thread_count': 4,
         'execution_queue_count': 1,
         'video_memory_strategy': 'moderate',
@@ -55,7 +55,7 @@ def init_facefusion_state():
         'temp_frame_format': 'jpg',
         'output_path': '/workspace/output',
         'output_image_quality': 80,
-        'output_audio_encoder': 'libmp3lame',
+        'output_audio_encoder': 'aac',
         'output_video_encoder': 'libx264',
         'output_video_preset': 'medium',
         'output_video_quality': 80,
@@ -63,9 +63,10 @@ def init_facefusion_state():
         'trim_frame_end': None,
         'keep_temp': False,
         'skip_audio': False,
-        'skip_face_swap': False,
-        'skip_face_enhancer': False,
-        'skip_voice_changer': False,
+        'command': 'run',
+        'source_paths': None,
+        'target_path': None,
+        'output_path': '/workspace/output',
     }
     for key, value in defaults.items():
         state_manager.set_item(key, value)
