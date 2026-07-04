@@ -1,85 +1,17 @@
 """
-Real-time face swap + voice changer streaming server.
-Uses FaceFusion 3.1.0 internal API, RVC for voice conversion.
-Single port: HTTP (index.html) + WebSocket (/ws)
+Real-time face swap using insightface + ONNX on CUDA.
+No FaceFusion overhead. Single port (HTTP + WS at /ws).
 """
 import os, sys, json, asyncio, time, struct, logging, base64, re
 from pathlib import Path
 
 import numpy as np
 import cv2
+import onnxruntime
+from insightface.app import FaceAnalysis
+from insightface.model_zoo import get_model
 
 from aiohttp import web
-
-# FaceFusion 3.1.0 imports
-from facefusion import state_manager
-from facefusion.face_analyser import get_many_faces, get_one_face
-from facefusion.processors.modules.face_swapper import swap_face
-from facefusion.face_store import get_static_faces, set_static_faces
-from facefusion.typing import VisionFrame, Face
-
-# Initialize FaceFusion state with required defaults
-import facefusion.choices as ff_choices
-def init_facefusion_state():
-    """Initialize FaceFusion state manager with default values."""
-    defaults = {
-        'face_detector_model': 'many',
-        'face_detector_size': '640x640',
-        'face_detector_angles': [0, 90, 180, 270],
-        'face_detector_score': 0.5,
-        'face_landmarker_model': 'many',
-        'face_landmarker_score': 0.5,
-        'face_selector_mode': 'many',
-        'face_selector_order': 'left-right',
-        'face_selector_gender': None,
-        'face_selector_race': None,
-        'face_selector_age': None,
-        'reference_face_distance': 0.6,
-        'reference_face_position': 0,
-        'reference_frame_number': 0,
-        'face_mask_types': ['box'],
-        'face_mask_blur': 0.3,
-        'face_mask_padding': (0, 0, 0, 0),
-        'face_mask_regions': None,
-        'face_occluder_model': 'xseg_1',
-        'face_parser_model': 'bisenet_resnet_18',
-        'execution_providers': ['tensorrt', 'cuda', 'cpu'],
-        'execution_device_id': 0,
-        'execution_thread_count': 4,
-        'execution_queue_count': 1,
-        'video_memory_strategy': 'moderate',
-        'system_memory_limit': 0,
-        'log_level': 'info',
-        'download_providers': ['github', 'huggingface'],
-        'download_scope': 'full',
-        'temp_path': '/tmp',
-        'temp_frame_format': 'jpg',
-        'output_path': '/workspace/output',
-        'output_image_quality': 80,
-        'output_audio_encoder': 'aac',
-        'output_video_encoder': 'libx264',
-        'output_video_preset': 'medium',
-        'output_video_quality': 80,
-        'trim_frame_start': None,
-        'trim_frame_end': None,
-        'keep_temp': False,
-        'skip_audio': False,
-        'command': 'run',
-        'source_paths': None,
-        'target_path': None,
-        'output_path': '/workspace/output',
-    }
-    for key, value in defaults.items():
-        state_manager.set_item(key, value)
-    # Verify state was stored
-    check = state_manager.get_item('download_providers')
-    logger.info(f"State init complete. download_providers = {check}")
-
-try:
-    from rvc_python import RVC
-    RVC_AVAILABLE = True
-except ImportError:
-    RVC_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("stream_server")
@@ -88,54 +20,43 @@ PORT = int(os.environ.get("STREAM_PORT", 8888))
 MAX_USERS = int(os.environ.get("MAX_USERS", 2))
 CALL_DURATION = int(os.environ.get("CALL_DURATION", 65))
 
-if not RVC_AVAILABLE:
-    class RVC:
-        def train(self, audio_path): pass
-        def infer(self, audio_array): return audio_array
-
+face_app = None
+swapper = None
 
 def init_models():
-    logger.info("Initializing FaceFusion state...")
-    init_facefusion_state()
-    
-    # Force all future get_item('execution_providers') calls to return CUDA
-    original_get_item = state_manager.get_item
-    def forced_get_item(key):
-        if key in ('execution_providers', 'execution_device_id'):
-            if key == 'execution_providers':
-                return ['CUDAExecutionProvider', 'CPUExecutionProvider']
-            return 0
-        return original_get_item(key)
-    state_manager.get_item = forced_get_item
-    
-    logger.info("Warming up FaceFusion models...")
-    dummy = np.zeros((640, 640, 3), dtype=np.uint8)
-    faces = get_many_faces([dummy])
-    logger.info(f"FaceFusion models ready ({len(faces)} faces in dummy frame)")
+    global face_app, swapper
+    logger.info("Initializing insightface with CUDA...")
+
+    available = onnxruntime.get_available_providers()
+    logger.info(f"Available providers: {available}")
+
+    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    if 'CUDAExecutionProvider' not in available:
+        providers = ['CPUExecutionProvider']
+        logger.warning("CUDA not available, using CPU")
+
+    # Face analysis uses onnx sessions internally
+    face_app = FaceAnalysis(name="buffalo_l", providers=providers)
+    face_app.prepare(ctx_id=0, det_size=(320, 320))
+
+    # Inswapper model
+    swapper = get_model("inswapper_128.onnx", providers=providers)
+
+    logger.info(f"Models ready (providers: {providers})")
 
 
-def extract_source_face(image_bytes: bytes) -> Face:
+def extract_source_face(image_bytes: bytes):
     arr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Could not decode source image")
-    faces = get_many_faces([img])
+    faces = face_app.get(img)
     if not faces:
         raise ValueError("No face detected in source image")
     return faces[0]
 
 
-def swap_frame(frame: np.ndarray, source_face: Face) -> np.ndarray:
-    many_faces = get_many_faces([frame])
-    if not many_faces:
-        return frame
-    for target_face in many_faces:
-        frame = swap_face(source_face, target_face, frame)
-    return frame
-
-
 class SessionWS:
-    """Wraps aiohttp WebSocketResponse for our handler."""
     def __init__(self, ws):
         self.ws = ws
 
@@ -163,7 +84,6 @@ class UserSession:
     def __init__(self, ws):
         self.ws = ws
         self.source_face = None
-        self.rvc_model = None
         self.start_time = None
         self.call_active = False
         self.frame_count = 0
@@ -172,10 +92,7 @@ class UserSession:
         try:
             msg = await asyncio.wait_for(self.ws.recv(), timeout=30)
             setup = json.loads(msg)
-
             face_b64 = setup.get("source_face")
-            audio_b64 = setup.get("reference_audio")
-            voice_on = setup.get("enable_voice", True)
 
             if not face_b64:
                 await self.ws.send(json.dumps({"error": "source_face required"}))
@@ -183,23 +100,7 @@ class UserSession:
 
             self.source_face = extract_source_face(base64.b64decode(face_b64))
             await self.ws.send(json.dumps({"status": "face_loaded"}))
-
-            if voice_on and audio_b64:
-                await self.ws.send(json.dumps({"status": "training_voice"}))
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                    audio_path = f"/tmp/ref_{id(self)}.wav"
-                    with open(audio_path, "wb") as f:
-                        f.write(audio_bytes)
-                    self.rvc_model = RVC(model_path=None)
-                    self.rvc_model.train(audio_path)
-                    await self.ws.send(json.dumps({"status": "voice_ready"}))
-                except Exception as e:
-                    logger.error(f"RVC error: {e}")
-                    await self.ws.send(json.dumps({"status": "voice_failed", "error": str(e)}))
-                    self.rvc_model = None
-            else:
-                await self.ws.send(json.dumps({"status": "voice_skipped"}))
+            await self.ws.send(json.dumps({"status": "voice_skipped"}))
 
             self.start_time = time.time()
             self.call_active = True
@@ -234,10 +135,12 @@ class UserSession:
                 if msg[0] == 0:
                     await self._proc_frame(msg)
                 elif msg[0] == 1:
-                    await self._proc_audio(msg)
+                    pass
         finally:
             self.call_active = False
-            logger.info(f"Session ended. Frames: {self.frame_count}")
+            elapsed = time.time() - self.start_time if self.start_time else 0
+            fps = self.frame_count / elapsed if elapsed > 0 else 0
+            logger.info(f"Session ended. Frames: {self.frame_count}, FPS: {fps:.1f}")
 
     async def _proc_frame(self, msg):
         self.frame_count += 1
@@ -246,27 +149,21 @@ class UserSession:
         frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if frame is None:
             return
-        frame = swap_frame(frame, self.source_face)
-        _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+
+        t0 = time.time()
+        faces = face_app.get(frame)
+        if faces:
+            frame = swapper.get(frame, faces[0], self.source_face, paste_back=True)
+        elapsed = time.time() - t0
+
+        _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         try:
             await self.ws.send(struct.pack("!B I", 0, ts) + jpg.tobytes())
         except:
             self.call_active = False
 
-    async def _proc_audio(self, msg):
-        ts = struct.unpack("!I", msg[1:5])[0]
-        payload = msg[5:]
-        if self.rvc_model:
-            try:
-                arr = np.frombuffer(payload, dtype=np.float32)
-                out = self.rvc_model.infer(arr)
-                payload = out.astype(np.float32).tobytes()
-            except Exception as e:
-                logger.error(f"RVC infer error: {e}")
-        try:
-            await self.ws.send(struct.pack("!B I", 1, ts) + payload)
-        except:
-            self.call_active = False
+        if self.frame_count % 30 == 0:
+            logger.info(f"Frame {self.frame_count}: {elapsed*1000:.0f}ms (fps={1/elapsed:.1f})")
 
 
 sessions = set()
@@ -295,14 +192,11 @@ async def index_handler(request):
         return web.Response(text="index.html not found", status=404)
 
     html = html_path.read_text()
-
-    # Auto-fill WS URL from the page URL
     match = re.search(r'https://(.+?)-\d+\.proxy\.runpod\.net', str(request.url))
     if match:
         pod_id = match.group(1)
         ws_url = f"wss://{pod_id}-{PORT}.proxy.runpod.net/ws"
         html = re.sub(r'value="wss://[^"]*"', f'value="{ws_url}"', html)
-
     return web.Response(text=html, content_type="text/html")
 
 
@@ -319,7 +213,7 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-    logger.info(f"Server on http://0.0.0.0:{PORT} (index.html at /, WS at /ws)")
+    logger.info(f"Server on http://0.0.0.0:{PORT}")
     await asyncio.Future()
 
 
