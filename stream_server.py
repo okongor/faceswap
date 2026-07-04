@@ -250,11 +250,12 @@ class UserSession:
             audio_b64 = setup.get("reference_audio")
             voice_on = setup.get("enable_voice", True)
 
-            # Full swap with padding for dreads
+            # Full swap — use entire padded box without occluder clipping
             state_manager.set_item('face_mask_types', ['box'])
-            state_manager.set_item('face_mask_blur', 0.1)
-            state_manager.set_item('face_mask_padding', (30, 50, 30, 50))
+            state_manager.set_item('face_mask_blur', 0)
+            state_manager.set_item('face_mask_padding', (40, 80, 40, 80))
             state_manager.set_item('face_occluder_model', 'xseg_1')
+            state_manager.set_item('face_angle', 0)
 
             if not face_b64:
                 await self.ws.send(json.dumps({"error": "source_face required"}))
