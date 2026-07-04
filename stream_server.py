@@ -1,18 +1,15 @@
 """
 Real-time face swap + voice changer streaming server.
 Uses FaceFusion 3.1.0 internal API, RVC for voice conversion.
+Single port: HTTP (index.html) + WebSocket (/ws)
 """
-import os, sys, json, asyncio, time, struct, logging, base64
+import os, sys, json, asyncio, time, struct, logging, base64, re
 from pathlib import Path
 
-import websockets
 import numpy as np
 import cv2
-import torch
 
-# HTTP server for serving index.html
 from aiohttp import web
-import mimetypes
 
 # FaceFusion 3.1.0 imports
 from facefusion.face_analyser import get_many_faces, get_one_face
@@ -20,7 +17,6 @@ from facefusion.processors.modules.face_swapper import swap_face
 from facefusion.face_store import get_static_faces, set_static_faces
 from facefusion.typing import VisionFrame, Face
 
-# RVC
 try:
     from rvc_python import RVC
     RVC_AVAILABLE = True
@@ -36,22 +32,18 @@ CALL_DURATION = int(os.environ.get("CALL_DURATION", 65))
 
 if not RVC_AVAILABLE:
     class RVC:
-        def train(self, audio_path):
-            pass
-        def infer(self, audio_array):
-            return audio_array
+        def train(self, audio_path): pass
+        def infer(self, audio_array): return audio_array
 
 
 def init_models():
-    """Pre-warm FaceFusion by running a dummy detection."""
     logger.info("Warming up FaceFusion models...")
     dummy = np.zeros((640, 640, 3), dtype=np.uint8)
     faces = get_many_faces([dummy])
-    logger.info(f"FaceFusion models ready (detected {len(faces)} faces in dummy frame)")
+    logger.info(f"FaceFusion models ready ({len(faces)} faces in dummy frame)")
 
 
 def extract_source_face(image_bytes: bytes) -> Face:
-    """Extract face embedding from source image bytes."""
     arr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
@@ -63,13 +55,37 @@ def extract_source_face(image_bytes: bytes) -> Face:
 
 
 def swap_frame(frame: np.ndarray, source_face: Face) -> np.ndarray:
-    """Swap all faces in a frame using FaceFusion."""
     many_faces = get_many_faces([frame])
     if not many_faces:
         return frame
     for target_face in many_faces:
         frame = swap_face(source_face, target_face, frame)
     return frame
+
+
+class SessionWS:
+    """Wraps aiohttp WebSocketResponse for our handler."""
+    def __init__(self, ws):
+        self.ws = ws
+
+    async def recv(self):
+        msg = await self.ws.receive()
+        if msg.type == web.WSMsgType.TEXT:
+            return msg.data
+        elif msg.type == web.WSMsgType.BINARY:
+            return msg.data
+        raise web.WebSocketClosedError
+
+    async def send(self, data):
+        if isinstance(data, str):
+            await self.ws.send_str(data)
+        elif isinstance(data, bytes):
+            await self.ws.send_bytes(data)
+        else:
+            await self.ws.send_json(data)
+
+    async def close(self):
+        await self.ws.close()
 
 
 class UserSession:
@@ -118,17 +134,11 @@ class UserSession:
             self.call_active = True
             await self.ws.send(json.dumps({"status": "ready", "duration": CALL_DURATION}))
             await self._stream_loop()
-        except asyncio.TimeoutError:
-            try:
-                await self.ws.send(json.dumps({"error": "setup_timeout"}))
-            except: pass
-        except websockets.exceptions.ConnectionClosed:
+
+        except (asyncio.TimeoutError, web.WebSocketClosedError):
             pass
         except Exception as e:
             logger.error(f"Session error: {e}", exc_info=True)
-            try:
-                await self.ws.send(json.dumps({"error": str(e)}))
-            except: pass
 
     async def _stream_loop(self):
         try:
@@ -139,7 +149,7 @@ class UserSession:
                     msg = await asyncio.wait_for(self.ws.recv(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
-                except websockets.exceptions.ConnectionClosed:
+                except web.WebSocketClosedError:
                     break
 
                 if isinstance(msg, str):
@@ -156,7 +166,7 @@ class UserSession:
                     await self._proc_audio(msg)
         finally:
             self.call_active = False
-            logger.info(f"Session ended. Frames processed: {self.frame_count}")
+            logger.info(f"Session ended. Frames: {self.frame_count}")
 
     async def _proc_frame(self, msg):
         self.frame_count += 1
@@ -190,64 +200,56 @@ class UserSession:
 
 sessions = set()
 
-async def handler(ws):
+async def ws_handler(request):
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
     if len(sessions) >= MAX_USERS:
-        await ws.send(json.dumps({"error": "server_full"}))
-        await ws.close()
-        return
-    s = UserSession(ws)
+        await ws.send_json({"error": "server_full"})
+        return ws
+
+    wrapped = SessionWS(ws)
+    s = UserSession(wrapped)
     sessions.add(s)
     try:
         await s.handle()
     finally:
         sessions.discard(s)
+    return ws
+
+
+async def index_handler(request):
+    html_path = Path(__file__).parent / "index.html"
+    if not html_path.exists():
+        return web.Response(text="index.html not found", status=404)
+
+    html = html_path.read_text()
+
+    # Auto-fill WS URL from the page URL
+    match = re.search(r'https://(.+?)-\d+\.proxy\.runpod\.net', str(request.url))
+    if match:
+        pod_id = match.group(1)
+        ws_url = f"wss://{pod_id}-{PORT}.proxy.runpod.net/ws"
+        html = re.sub(r'value="wss://[^"]*"', f'value="{ws_url}"', html)
+
+    return web.Response(text=html, content_type="text/html")
 
 
 async def main():
     init_models()
-    
-    ws_port = PORT
-    http_port = PORT + 1
-    
-    # HTTP app for serving index.html (serves on http_port)
+
     app = web.Application()
-    
-    async def index_handle(request):
-        html_path = Path(__file__).parent / "index.html"
-        if html_path.exists():
-            return web.Response(text=html_path.read_text(), content_type="text/html")
-        return web.Response(text="index.html not found", status=404)
-    
-    async def ws_proxy_handle(request):
-        # Serve a client page that connects to WebSocket on ws_port
-        html_path = Path(__file__).parent / "index.html"
-        if html_path.exists():
-            html = html_path.read_text()
-            # Inject the WebSocket URL hint
-            import re
-            html = re.sub(
-                r'value="wss://[^"]*"',
-                f'value="wss://{request.host.split(":")[0]}-{ws_port}.proxy.runpod.net"',
-                html
-            )
-            return web.Response(text=html, content_type="text/html")
-        return web.Response(text="index.html not found", status=404)
-    
-    app.router.add_get("/", index_handle)
-    app.router.add_get("/index.html", index_handle)
-    
-    async def start_http():
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", http_port)
-        await site.start()
-        logger.info(f"HTTP server on http://0.0.0.0:{http_port} (serving index.html)")
-    
-    await start_http()
-    
-    logger.info(f"WebSocket stream server on ws://0.0.0.0:{ws_port}")
-    async with websockets.serve(handler, "0.0.0.0", ws_port, ping_interval=20, ping_timeout=10):
-        await asyncio.Future()
+    app.router.add_get("/", index_handler)
+    app.router.add_get("/index.html", index_handler)
+    app.router.add_get("/ws", ws_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+
+    logger.info(f"Server on http://0.0.0.0:{PORT} (index.html at /, WS at /ws)")
+    await asyncio.Future()
 
 
 if __name__ == "__main__":
