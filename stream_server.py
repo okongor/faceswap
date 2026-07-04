@@ -43,6 +43,7 @@ def init_facefusion_state():
         'face_mask_regions': None,
         'face_occluder_model': 'xseg_1',
         'face_parser_model': 'bisenet_resnet_18',
+        'face_swapper_model': 'inswapper_128',
         'execution_providers': ['cuda', 'cpu'],
         'execution_device_id': 0,
         'execution_thread_count': 4,
