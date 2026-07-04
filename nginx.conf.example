@@ -1,0 +1,23 @@
+# Production reverse proxy for FaceSwap Pro
+# Deploy this on a $5/mo VPS with domain faceswap.yourdomain.com
+
+server {
+    listen 80;
+    server_name faceswap.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;  # local status server
+    }
+
+    location /ws {
+        # When GPU pod is running, proxy to it
+        proxy_pass https://zgk327yh5iyrkl-8891.proxy.runpod.net/ws;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400s;
+    }
+}
