@@ -84,7 +84,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("stream_server")
 
 PORT = int(os.environ.get("STREAM_PORT", 8888))
-MAX_USERS = int(os.environ.get("MAX_USERS", 1))
+MAX_USERS = int(os.environ.get("MAX_USERS", 2))
 CALL_DURATION = int(os.environ.get("CALL_DURATION", 65))
 
 if not RVC_AVAILABLE:
