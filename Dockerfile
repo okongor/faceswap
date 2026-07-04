@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y ffmpeg libsm6 libxext6 libxrender-dev l
 RUN pip install --upgrade pip
 
 # Install FaceFusion dependencies + server deps
-RUN pip install insightface onnxruntime-gpu opencv-python numpy websockets
+RUN pip install insightface onnxruntime-gpu opencv-python numpy aiohttp
 
 # Clone FaceFusion 3.1.0
 RUN git clone https://github.com/facefusion/facefusion.git /workspace/facefusion
@@ -24,10 +24,9 @@ WORKDIR /workspace/faceswap
 # Set up PYTHONPATH
 ENV PYTHONPATH=/workspace/facefusion:$PYTHONPATH
 
-# Expose WebSocket port (same as RunPod's default 8888 Jupyter port)
+# Expose HTTP + WebSocket port
 EXPOSE 8888
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD python -c "import socket; s=socket.socket(); s.settimeout(3); s.connect(('localhost',8888)); s.close()" || exit 1
 
