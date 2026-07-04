@@ -44,6 +44,7 @@ def init_facefusion_state():
         'face_occluder_model': 'xseg_1',
         'face_parser_model': 'bisenet_resnet_18',
         'execution_providers': ['cuda', 'cpu'],
+        'execution_device_id': 0,
         'execution_thread_count': 4,
         'execution_queue_count': 1,
         'video_memory_strategy': 'moderate',
